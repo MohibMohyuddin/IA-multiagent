@@ -1,0 +1,2 @@
+# IA-multiagent
+Pacman multiagent
