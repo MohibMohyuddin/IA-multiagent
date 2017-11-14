@@ -36,7 +36,7 @@ def closestDot(originPoint, otherPoints):
     if closestCost is 9999999:
         return None
     else:
-        return closestCost
+        return (closestCost, closestPoint)
 
 
 class ReflexAgent(Agent):
@@ -103,7 +103,7 @@ class ReflexAgent(Agent):
         closest_food = closestDot(newPos, newFood.asList())
         
         if closest_food is not None:
-            score += (-int(closest_food) * 50) - (len(newFood.asList())* 1000)
+            score += (-int(closest_food[0]) * 50) - (len(newFood.asList())* 1000)
         if action == 'stop':
             score -= 10000
 
@@ -236,12 +236,12 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
           Returns the minimax action using self.depth and self.evaluationFunction
         """
         self.numberOfAgents = gameState.getNumAgents()
-        
+        alpha = -float('inf')
+        beta = float('inf')
         best_action_score = -float('inf')
         for action in gameState.getLegalActions(self.PACMAN):
-            alpha = -float('inf')
-            beta = float('inf')
             action_score = self.state_value(gameState.generateSuccessor(self.PACMAN, action), 1, alpha, beta)
+            alpha = max(alpha, action_score)
             if action_score > best_action_score:
                 best_action_score = action_score
                 best_action = action
@@ -275,8 +275,8 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         for agent_action in state.getLegalActions(agent_num):
             destination_state = state.generateSuccessor(agent_num, agent_action)
             v = min(v, self.state_value(destination_state, layered_depth + 1, alpha, beta))
-            if v < alpha:
-                return v
+            
+            if v < alpha: return v
             beta = min(beta, v)
         return v
 
@@ -288,8 +288,7 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         for agent_action in state.getLegalActions(agent_num):
             destination_state = state.generateSuccessor(agent_num, agent_action)
             v = max(v, self.state_value(destination_state, layered_depth + 1, alpha, beta))
-            if v > beta:
-                return v
+            if v > beta: return v
             alpha = max(alpha, v)
         return v
 
@@ -306,19 +305,121 @@ class ExpectimaxAgent(MultiAgentSearchAgent):
           All ghosts should be modeled as choosing uniformly at random from their
           legal moves.
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        self.numberOfAgents = gameState.getNumAgents()
 
+        best_action_score = -float('inf')
+        for action in gameState.getLegalActions(self.PACMAN):
+            action_score = self.state_value(gameState.generateSuccessor(self.PACMAN, action), 1)
+            if action_score > best_action_score:
+                best_action_score = action_score
+                best_action = action
+        
+        #print("Action: {}, Value: {}".format(best_action, best_action_score))
+        return best_action
 
+    def state_value(self, state, layered_depth):
+        agent_num = layered_depth%self.numberOfAgents
+        """
+        We have self.numberOfAgents layers, so our depth will not be the real depth, our real
+        depth will be layered_depth/N of agents, in order to consider the response of the ghosts
+        as one move!
+        """
+        if layered_depth >= self.depth * self.numberOfAgents or state.isWin() or state.isLose():
+            return self.evaluationFunction(state)
+        
+        if agent_num == self.PACMAN:
+            return self.max_action(state, agent_num, layered_depth)
+
+        if agent_num >= self.PACMAN:
+            return self.prob_action(state, agent_num, layered_depth)
+    
+
+    def prob_action(self, state, agent_num, layered_depth):
+        """
+        The prob of each action is the same, so its 1/agent_actions
+        v <- 0
+        for a in actions:
+            The action gives us a destiantion state
+            v <- prob state dest * state_value(state)
+        """
+        v = 0
+        number_actions = len(state.getLegalActions(agent_num))
+        for agent_action in state.getLegalActions(agent_num):
+            destination_state = state.generateSuccessor(agent_num, agent_action)
+            #PSEUDO: v := v + (Probability[child] * expectiminimax(child, depth-1))
+            v += (1.0/number_actions * self.state_value(destination_state, layered_depth + 1))
+        return v
+    
+    def max_action(self, state, agent_num, layered_depth):
+        """
+        Analogue version for max
+        """
+        v = -float('inf')
+        for agent_action in state.getLegalActions(agent_num):
+            destination_state = state.generateSuccessor(agent_num, agent_action)
+            v = max(v, self.state_value(destination_state, layered_depth + 1))
+        return v
+
+def food_sorround_fact(point, points):
+    score = 0
+    FACT = 100
+    if((point[0] + 1, point[1]) not in points):
+        score += FACT
+    if((point[0] - 1, point[1]) not in points):
+        score += FACT
+    if((point[0], point[1] + 1) not in points):
+        score += FACT
+    if((point[0], point[1] - 1) not in points):
+        score += FACT
+    return score
 def betterEvaluationFunction(currentGameState):
     """
       Your extreme ghost-hunting, pellet-nabbing, food-gobbling, unstoppable
       evaluation function (question 5).
 
-      DESCRIPTION: <write something here so we know what you did>
+      DESCRIPTION: 
+        My conditions:
+        1. If the state is a win state -> INF
+        2. If the state is a lose state -> -INF
+        3. PENALIZATIONS: 
+            a. If the closest food is far away -> factor = 50 
+            b. If we have remaining food -> factor = 1000
+            c. PACMAN and the ghost are in the same position -> equals to isLose()
+            d. If the ghost is closer than 3 positions -> -INF run away!
+        3. BONUS:
+            a. If PACMAN have a nearby Scared Ghost -> 3000
+            b. If PACMAN eats a nearby Ghost -> INF 
+
     """
-    "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    newPos = currentGameState.getPacmanPosition()
+    newFood = currentGameState.getFood()
+    newGhostStates = currentGameState.getGhostStates()
+    newScaredTimes = [ghostState.scaredTimer for ghostState in newGhostStates]
+    newCapsules = currentGameState.getCapsules()
+    
+    score = 0
+
+    phantom_distances = [util.manhattanDistance(
+        newPos, ghost_position) for ghost_position in currentGameState.getGhostPositions()]
+
+    closest_food = closestDot(newPos, newFood.asList())
+    if currentGameState.isWin():
+        return float('inf')
+    if currentGameState.isLose():
+        return -float('inf')
+    if closest_food is not None:
+        score += (-int(closest_food[0]) * 50) - (len(newFood.asList())* 1000)
+    for capsule in newCapsules:
+        score -= (util.manhattanDistance(newPos, capsule) * 200)
+    closest_phantom = min(phantom_distances)
+    if closest_phantom <= 3 and newScaredTimes[phantom_distances.index(closest_phantom)] < closest_phantom:
+        score = -float('inf')
+    if newScaredTimes[phantom_distances.index(closest_phantom)] >= closest_phantom:
+        score += 3000
+        if closest_phantom == newPos:
+            score = float('inf')
+    
+    return score
 
 
 # Abbreviation
