@@ -1,2 +1,2 @@
 # IA-multiagent
-Pacman multiagent
+(Berkeley AI) Multiagent problems using PACMAN
